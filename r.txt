@@ -1,0 +1,3 @@
+echo test
+ls
+echo changed
