@@ -223,6 +223,8 @@ void MyCD(char *dir_input, int arg_count)
 //simple exit function - IMPLEMENTED BY BRANDON TSUCHIYA
 void MyExit()
 {
+	printf("Exiting program");
+	kill(ppid, SIGINT); // Forced kill parent process because during testing, the more commands called, the less likely for exit function to properly close.
 	exit(0);
 }
 
