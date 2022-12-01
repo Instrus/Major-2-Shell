@@ -13,12 +13,8 @@
 #define MAX 512 // user's input is less than 512 bytes
 
 /*CURRENT IDEAS:
- *
  * Need to implement a queue. Add each line (command + args) to queue. Add exit function last if called.
  * ex: ls; cd; exit; echo test; = ls; cd; echo test; exit;
- * 
- * Remove (in interactive move) the line that displays all lines (user input). Only for batch mode.
- *
  * */
 
 pid_t ppid; // gloabal parent id
@@ -26,31 +22,27 @@ pid_t cpid; // global child id
 
 void InteractiveMode();
 void BatchMode(char *file);
-// Interactive Mode / Batch Mode variables
-char lines[MAX][MAX]; // WAS char* lines[MAX]
+
+// Global variables
+char lines[MAX][MAX]; // separated into lines
+int lineIndex = 0; // for keeping track of number of lines
+char* lineWords[MAX][MAX]; // separating lines into arrays of words/items
+int lineWordCount[MAX]; // for keeping track of number of words/items
+char IBuffer[1024]; // used for getcwd (in MyCD)
+const char* homeDir; // used for current users home directory
 
 int ParseCommands(char *userInput); //e.g., "ls -a -l; who; date;" is converted to "ls -al" "who" "date"
 int ParseArgs(char lines[MAX][MAX]); //e.g., "ls -a -l" is converted to "ls" "-a" "-l"
-void ExecuteCommands(char *command, char *full_line);
-
-// ParseCommands variables
-int lineIndex = 0; // keep track of amount of lines
-//ParseArgs variables
-char* lineWords[MAX][MAX]; // words array of each line THIS IS WHERE ARRAYS OF WORDS ARE STORED (first [] is location of each array, second holds the words)
-int lineWordCount[MAX]; // track number of words per line
+void ExecuteCommands();
 
 // Built-In-Functions
 void MyCD(char *dir_input, int arg_count);
 void MyExit();
-// Built-In-Function Variables
-char IBuffer[1024]; // used for getcwd call
-const char* homeDir; // used for current users home directory
 
 void CommandRedirect(char *args[], char *first_command, int arg_count, char *full_line);
 void PipeCommands(char *args[], char *first_command, int arg_count);
-void signalHandle(int sig);
 
-char *prompt;
+char* prompt;
 
 int EXIT_CALLED = 0;//Functions seem to treat this as a global variable -DM
 
@@ -90,53 +82,106 @@ int ParseCommands(char *userInput)
 	line = strtok(NULL, ";"); // get new line
 	lineIndex++;
 	}
-	//lines[lineIndex] = NULL; // last element should be NULL
+
 	return 0;
 }
 
 
-// acept lines from either batch or interactive
-int ParseArgs(char lines[MAX][MAX]){ // works on lines (batchLines)
-	
+// ParseArgs - acepts lines from either Interactive/Batch
+int ParseArgs(char lines[MAX][MAX])
+{	
 	for (int i = 0; i < lineIndex; i++) // for each line
         {
-                char* currentLine = lines[i]; // get current line - WAS char* currentLine = currentLine = lines[i]; WHAT
-                char* word = strtok(currentLine, " "); // get one word at a time.
-                int currentLineWordCount = 0; // keep track of how many words in each line
+                char* currentLine = lines[i]; // get current line
+                char* word = strtok(currentLine, " "); // get one word/item at a time.
+                int currentLineWordCount = 0; // keep track of how many words/items in eaech line
 
-                // get each word
+                // get each word/item
                 while (word != NULL) //while there are words in the current line, get
                 {
                         lineWords[i][currentLineWordCount] = word; // store each word into lineWords
                         currentLineWordCount++; // increment currnet line word count
                         word = strtok(NULL, " ");
                 }
-
                 lineWordCount[i] = currentLineWordCount; //store currrent line word count into line word count array
         }
-        lineWords[lineIndex][0] = NULL; // NULLify last element
+
         return 0;
 }
 
 
-//Execute commands - Need to accept a 2d char array to run each one.
+//Execute commands
+void ExecuteCommands(){
+                for (int i = 0; i < lineIndex; i++) //for each line
+                { //start of for loop
+                         // using parent child exec wait model to run commands like echo, ls, cat, etc
+                        pid_t pid = fork();
+                        // child process - if user runs a built-in-function, child process terminates and parent handles.
+                        if(pid == 0)
+                        {
+                                // child terminates if built-in-function called
+				if (strcmp (lineWords[i][0], "cd") == 0)
+                                        kill(getpid(), SIGINT);
+                                else if (strcmp (lineWords[i][0], "exit") == 0)
+					MyExit();
+                                // if not cd or exit, child process handles
+                                else if ( execvp(lineWords[i][0], lineWords[i]) == -1 ) // if exec does not work correctly, issue error
+                                        printf("%s command not found\n", lineWords[i][0]);
+                        }
+                        // parent process
+                        else if (pid > 0)
+                        {
+                                wait(NULL);
+                                // cd command
+                                if (strcmp(lineWords[i][0], "cd") == 0) //if first word of line (command)
+                                        MyCD(lineWords[i][1], lineWordCount[i]); //sending argument 1 (directory destination option)
+                                //exit command
+				else if (strcmp(lineWords[i][0], "exit") == 0) //if first word of line (command)
+				       	MyExit();
+                        }
+                        // error case
+                        else
+                                perror("fork error\n");
+                } //end of for loop
+}
 
 
 //Interactive Mode
 void InteractiveMode()
 { // start of InteractiveMode function
 	
+	char answer;
+	char newPrompt[50];
+	printf("Would you like to customize the prompt? [y/n]\n");
+	answer = getchar();
+	if (answer == 'y' || answer == 'Y')
+	{
+		do 
+		{
+			printf("Enter prompt (hint: no spaces): ");
+			scanf("%s", newPrompt); //problem: scanf only gets first  word and ignores spaces...
+			if (strchr(newPrompt, ' '))
+				printf("Please do not use spaces\n");
+			//getchar();
+		} while (strchr (newPrompt, ' '));
+		getchar();
+		prompt = newPrompt;
+	} else 
+	{
+		prompt = "Interactive Mode>";
+		getchar(); // clear buffer
+	}
+	
 	while (1)
 	{ // start of while loop - iterate until exit function called
-	
 		// clear arrays and indexes with every iteration
 		memset(lines, 0, MAX);
 		lineIndex = 0;
 		memset(lineWords, 0, sizeof(lineWords));
 		memset(lineWordCount, 0, MAX);
 		
-		printf("Interactive> ");
-		
+		printf("%s ", prompt);
+	
 		// user input
 		char input[MAX]; // Interactive Mode user input
 		fgets(input, 512, stdin); // get input
@@ -144,65 +189,14 @@ void InteractiveMode()
 		
 		ParseCommands(input); // call ParseCommands
 		ParseArgs(lines); // call ParseArgs
-		//Execute commands
-
-
-		/*
-		// print each line - testing purposes
-        	for (int i = 0; i < lineIndex; i++) // for each line
-		{
-                	printf("Line %d: ", i);
-
-        		for (int x = 0; x < lineWordCount[i]; x++)
-                		printf("%s ", lineWords[i][x] );
-                	printf("\n");
-        	}
-		*/
-		
-		// Run commands
-		for (int i = 0; i < lineIndex; i++) //for each line
-		{ //start of for loop
-
-			 // using parent child exec wait model to run commands like echo, ls, cat, etc
-			pid_t pid = fork();
-
-			// child process - if user runs a built-in-function, child process terminates and parent handles.
-			if(pid == 0)
-			{
-				// child terminates if built-in-function called
-				if (strcmp (lineWords[i][0], "cd") == 0)
-					kill(getpid(), SIGINT);
-				else if (strcmp (lineWords[i][0], "exit") == 0)
-					kill(getpid(), SIGINT);
-				// if not cd or exit, child process handles
-				else if ( execvp(lineWords[i][0], lineWords[i]) == -1 ) // if exec does not work correctly, issue error
-					printf("%s command not found\n", lineWords[i][0]);
-			}
-
-			// parent process
-			else if (pid > 0)
-			{
-				wait(NULL);
-
-				// cd command
-				if (strcmp(lineWords[i][0], "cd") == 0) //if first word of line (command)
-                                	MyCD(lineWords[i][1], lineWordCount[i]); //sending argument 1 (directory destination option)
-				//exit command
-				if (strcmp(lineWords[i][0], "exit") == 0) //if first word of line (command)
-                                        MyExit();
-			}
-
-			// error case
-			else
-				perror("fork error\n");
-		} //end of for loop
-	} // end of while loop
+		ExecuteCommands();
+	}// end of while loop
 } // end of InteractiveMode function
 
 
 // MyCD function - handles changing directory - IMPLEMENTED BY ERIC TSUCHIYA
-void MyCD(char *dir_input, int arg_count){
-
+void MyCD(char *dir_input, int arg_count)
+{
 	// return if more than one option. (cd call counts as argument one, extra option is two)
 	if (arg_count > 2){
 		printf("Error: too many arguments\n");
@@ -227,9 +221,9 @@ void MyCD(char *dir_input, int arg_count){
 
 
 //simple exit function - IMPLEMENTED BY BRANDON TSUCHIYA
-void MyExit(){
-	printf("Exiting\n");
-	exit(0);	
+void MyExit()
+{
+	exit(0);
 }
 
 
@@ -264,50 +258,10 @@ void BatchMode(char *file)
 	// close file after all input gathered
 	fclose(fptr);
 
-	// Test - PRINT ALL LINES
-	printf("Printing results:\n");
-	//display lines
+	// Print each line
         for (int i = 0; i < lineIndex; i++)
                 printf("Line %d: %s\n", i, lines[i]);
 
 	ParseArgs(lines);
-
-	// Run commands
-                for (int i = 0; i < lineIndex; i++) //for each line
-                { //start of for loop
-
-                         // using parent child exec wait model to run commands like echo, ls, cat, etc
-                        pid_t pid = fork();
-
-                        // child process - if user runs a built-in-function, child process terminates and parent handles.
-                        if(pid == 0)
-                        {
-                                // child terminates if built-in-function called
-                                if (strcmp (lineWords[i][0], "cd") == 0)
-                                        kill(getpid(), SIGINT);
-                                else if (strcmp (lineWords[i][0], "exit") == 0)
-                                        kill(getpid(), SIGINT);
-                                // if not cd or exit, child process handles
-                                else if ( execvp(lineWords[i][0], lineWords[i]) == -1 ) // if exec does not work correctly, issue error
-                                        printf("%s command not found\n", lineWords[i][0]);
-                        }
-
-                        // parent process
-                        else if (pid > 0)
-                        {
-                                wait(NULL);
-
-                                // cd command
-                                if (strcmp(lineWords[i][0], "cd") == 0) //if first word of line (command)
-                                        MyCD(lineWords[i][1], lineWordCount[i]); //sending argument 1 (directory destination option)
-                                //exit command
-                                if (strcmp(lineWords[i][0], "exit") == 0) //if first word of line (command)
-                                        MyExit();
-                        }
-
-                        // error case
-                        else
-                                perror("fork error\n");
-                } //end of for loop	
+	ExecuteCommands();
 }
-

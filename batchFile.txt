@@ -1,3 +1,4 @@
 echo test
 ls
+exit
 echo changed
