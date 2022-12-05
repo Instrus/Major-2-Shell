@@ -1,4 +1,4 @@
 echo test
-ls
+ls | sort
 exit
 echo changed
