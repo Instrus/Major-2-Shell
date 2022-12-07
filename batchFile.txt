@@ -1,4 +1,5 @@
-echo test
+echo Hello World!
 ls | sort
+cd
 exit
-echo changed
+echo Exited

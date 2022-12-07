@@ -32,15 +32,15 @@ char IBuffer[1024]; // used for getcwd (in MyCD)
 const char* homeDir; // used for current users home directory
 
 int ParseCommands(char *userInput); //e.g., "ls -a -l; who; date;" is converted to "ls -al" "who" "date"
-int ParseArgs(char* line); //e.g., "ls -a -l" is converted to "ls" "-a" "-l" -  WAS char lines[MAX][MAX]
-void ExecuteCommands();
+int ParseArgs(char* line); //e.g., "ls -a -l" is converted to "ls" "-a" "-l"
+void ExecuteCommands(char* elements[MAX], int size);
 
 // Built-In-Functions
 void MyCD(char *dir_input, int arg_count);
 void MyExit();
 
-void CommandRedirect(char *args[], char *first_command, int arg_count, char *full_line);
-int PipeCommands(char* input); //was int //was char *args[], char *first_command, int arg_count
+void CommandRedirect(char* line);
+int PipeCommands(char* input);
 
 char* prompt;
 
@@ -89,7 +89,18 @@ int ParseCommands(char *userInput)
 
 // ParseArgs - acepts lines from either Interactive/Batch
 int ParseArgs(char* line) // need a single line
-{	
+{
+        // if line contains > or <, call CommandRedirect
+	if(strchr(line, '>')){
+		CommandRedirect(line);
+		return 0;
+	}
+	//else if (strchr(line, '<')){ (not yet implemented)
+	//	CommandRedirect(line);
+	//	return 0;
+	//}		
+
+
 	char* word = strtok(line, " "); // get one word/item at a time.
 	char* tempArray[MAX]; // hold each item. don't need more than 25 atm.
 	int index = 0;
@@ -122,7 +133,8 @@ void ExecuteCommands(char* elements[MAX], int size)
 		if (strcmp (elements[0], "cd") == 0) //if first element = cd
                 	kill(getpid(), SIGINT);
                 else if ( execvp(elements[0], elements) == -1 ){ //if does not work
-			printf("%s command not found\n", elements[0]); //change to stderr
+			//printf("%s command not found\n", elements[0]); //change to stderr
+			 fprintf(stderr, "%s command not found\n", elements[0]);
 		}
 	}
 	//parent process
@@ -131,7 +143,7 @@ void ExecuteCommands(char* elements[MAX], int size)
         	wait(NULL);
                 
 		// cd command
-                if (strcmp(elements[0], "cd") == 0) //if first word of line (command) (THINK I NEED TO FIX MYCD)
+                if (strcmp(elements[0], "cd") == 0) //if first word of line (command)
                 	MyCD(elements[1], size); //sending argument 1 (directory destination option)
 	}
         //error case
@@ -141,11 +153,13 @@ void ExecuteCommands(char* elements[MAX], int size)
 }
 
 
-
+// PipeCommands - used for any commands including pipeline
+// Only has one pipe and can only be used for one |. ex. cmd1 | cmd 2 will work but not cmd1 | cmd2 | cmd3
+// Created by Eric Tsuchiya
 int PipeCommands(char* input)
 {
 	char* line = strtok(input, "|"); // separate each line
-        char* lineArray[2]; // hold each line - only works for 2 lines at the moment
+        char* lineArray[2]; // hold each line
         int lineIndex = 0;
 
         // parse lines
@@ -184,6 +198,7 @@ int PipeCommands(char* input)
 
 	//fork 1
 	int pid1 = fork();
+	
 	if (pid1 < 0)
 		return 2;
 
@@ -199,6 +214,7 @@ int PipeCommands(char* input)
 
 	//fork 2
 	int pid2 = fork();
+
 	if (pid2 < 0)
 		return 3;
 
@@ -218,8 +234,88 @@ int PipeCommands(char* input)
 }
 
 
-void CommandRedirect(char *args[], char *first_command, int arg_count, char *full_line){
+// CommandRedirect - Called if > is used. Only works writing to a file. Does not work for reading from a file.
+// Created by Brandon Tsuchiya
+void CommandRedirect(char* line)
+{	
+	// parse lines
+	char* singleLine = strtok(line, ">"); // separate each line
+        char* lineArray[2]; // hold each line - only works for 2 lines at the moment
+        int lineIndex = 0;
 
+        // parse lines
+        while (singleLine != NULL) //while there are words/items in line
+        {
+                lineArray[lineIndex] = singleLine;
+                singleLine = strtok(NULL, ">"); //get another word.
+                lineIndex += 1;
+        }
+	
+	// parse items/words
+        char* itemArray[2][MAX]; // item array to separate lines into commands and arguments
+        int wordCount[2]; //keep track of how many words in each line
+        for (int i = 0; i < 2; i++) //for each line (2 in this case)
+        {
+                char* item = strtok(lineArray[i], " "); // get one word/item at a time.
+                int wordIndex = 0; //keep track of how many words/items per line
+
+                // get each word/item
+                while (item != NULL) //while there are words/items in line
+                {
+                        itemArray[i][wordIndex] = item; //store item
+                        item = strtok(NULL, " "); //get another word.
+                        wordIndex += 1;
+                }
+                wordCount[i] = wordIndex; // store count for each line
+        }
+
+
+	//display all items of each line
+        //for (int i = 0; i < 2; i++) //for each line (2 in this case)
+        //{
+	//	printf("Line %d: ", i);
+	//	for (int x = 0; x < wordCount[i]; x++){
+	//		printf("%s, ", itemArray[i][x]);
+	//	}
+	//	printf("\n");
+        //}
+	
+	char fileName[50] = "out.txt"; //by default fileName is "out.txt"
+	strcpy(fileName, itemArray[1][0]); //copy name given by user for file (line 1, element 1 to get name of file)
+
+	int pid = fork();
+        
+	if (pid == 0)
+	{
+		// open file to write to
+		int output_fd = open(fileName, O_WRONLY | O_CREAT, 0777);
+
+		//error - file could not open
+        	if (output_fd == -1)
+                	fprintf(stderr, "Error: could not open file\n");
+	
+		// save original stdout file descriptor
+		int stdout_fd = dup(fileno(stdout));
+
+		// redirect stdout to output file
+		if ( dup2(output_fd, fileno(stdout)) < 0)
+			fprintf(stderr, "Dup2 error\n");
+		
+		//anything going to stdout will instead go to the file.
+                if ( execvp(itemArray[0][0], itemArray[0]) == - 1){ // run line 1 (command)
+			printf("%s command not found\n", itemArray[0][0]);
+		}
+
+		// close file once no longer needed
+		fflush(stdout);
+		close (output_fd);
+
+		//restore original stdout file descriptor
+		dup2(stdout_fd, fileno(stdout));
+		close (stdout_fd);
+	}
+        else if (pid > 0)
+        	wait(NULL);
 }
 
 
@@ -227,7 +323,7 @@ void CommandRedirect(char *args[], char *first_command, int arg_count, char *ful
 void InteractiveMode()
 { // start of InteractiveMode function
 	
-	//customize prompt
+	//customize prompt (optional)
 	char answer;
 	char newPrompt[50];
 	printf("Would you like to customize the prompt? [y/n]\n");
@@ -274,9 +370,6 @@ void InteractiveMode()
 				ParseArgs(lines[i]);
 		}
 
-		//clear input
-		//memset(input, 0, MAX);
-
 	}// end of while loop
 } // end of InteractiveMode function
 
@@ -286,7 +379,7 @@ void MyCD(char *dir_input, int arg_count)
 {
 	// return if more than one option. (cd call counts as argument one, extra option is two)
 	if (arg_count > 2){
-		printf("Error: too many arguments\n");
+		fprintf(stderr, "Error: too many arguments\n");
 		return;
 	}
 	// If no arguments/options, go current users home.
