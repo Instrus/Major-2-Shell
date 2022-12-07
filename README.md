@@ -1,6 +1,8 @@
 # Major-2-Shell
 Team Members: Eric Tsuchiya (ert0068), Brandon Tsuchiya (bat1062).
 
+ATTENTION: If using the optional prompt change in Interactive Mode, do not use spaces. Best use case is using something like "MyPrompt>"
+
 This is for assignment Major 2. We have completed one built in function and one shell support function per person. We have a total of two built in functions and two support functions as our group only consists of two people. 
 
 Eric Tsuchiya created MyCD and pipeline functions.
