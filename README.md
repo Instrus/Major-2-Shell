@@ -1,5 +1,5 @@
 # Major-2-Shell
-Team Members: Eric Tsuchiya, Brandon Tsuchiya.
+Team Members: Eric Tsuchiya (ert0068), Brandon Tsuchiya (bat1062).
 
 This is for assignment Major 2. We have completed one built in function and one shell support function per person. We have a total of two built in functions and two support functions as our group only consists of two people. 
 
